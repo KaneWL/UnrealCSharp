@@ -51,6 +51,8 @@ private:
 
 	static FString GetClassSignature(const UClass* InClass);
 
+	static bool IsStillLoading(const UObject* InObject);
+
 	static bool IsScriptOutOfDate();
 
 private:
