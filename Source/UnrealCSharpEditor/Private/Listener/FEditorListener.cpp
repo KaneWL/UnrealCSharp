@@ -182,10 +182,24 @@ void FEditorListener::OnPostEngineInit()
 
 void FEditorListener::OnBlueprintPreCompile(UBlueprint* InBlueprint)
 {
-	if (InBlueprint != nullptr && !PendingCompiledBlueprints.Contains(InBlueprint))
+	if (InBlueprint == nullptr || PendingCompiledBlueprints.Contains(InBlueprint))
 	{
-		PendingCompiledBlueprints.Add(InBlueprint, GetClassSignature(InBlueprint->GeneratedClass));
+		return;
 	}
+
+	if (IsStillLoading(InBlueprint) || IsStillLoading(InBlueprint->GeneratedClass))
+	{
+		return;
+	}
+
+	PendingCompiledBlueprints.Add(InBlueprint, GetClassSignature(InBlueprint->GeneratedClass));
+}
+
+bool FEditorListener::IsStillLoading(const UObject* InObject)
+{
+	return InObject != nullptr &&
+		(InObject->HasAnyFlags(RF_NeedLoad | RF_NeedPostLoad) ||
+		 InObject->HasAnyInternalFlags(EInternalObjectFlags_AsyncLoading));
 }
 
 void FEditorListener::OnBlueprintCompiled()
@@ -650,6 +664,93 @@ void FEditorListener::GeneratePendingCompiledBlueprints()
 	FGeneratorCore::EndGenerator(false);
 }
 
+static void AppendPropertyType(FStringBuilderBase& InBuilder, const FProperty* InProperty)
+{
+	if (InProperty == nullptr)
+	{
+		InBuilder << TEXT("null");
+
+		return;
+	}
+
+	const auto AppendObjectName = [&InBuilder](const UObject* InObject)
+	{
+		if (InObject != nullptr)
+		{
+			InBuilder << TEXT('<') << InObject->GetFName() << TEXT('>');
+		}
+		else
+		{
+			InBuilder << TEXT("<null>");
+		}
+	};
+
+	InBuilder << InProperty->GetClass()->GetFName();
+
+	if (const auto DelegateProperty = CastField<FDelegateProperty>(InProperty))
+	{
+		AppendObjectName(DelegateProperty->SignatureFunction);
+	}
+	else if (const auto MulticastDelegateProperty = CastField<FMulticastDelegateProperty>(InProperty))
+	{
+		AppendObjectName(MulticastDelegateProperty->SignatureFunction);
+	}
+	else if (const auto EnumProperty = CastField<FEnumProperty>(InProperty))
+	{
+		AppendObjectName(EnumProperty->GetEnum());
+	}
+	else if (const auto ByteProperty = CastField<FByteProperty>(InProperty))
+	{
+		AppendObjectName(ByteProperty->Enum);
+	}
+	else if (const auto StructProperty = CastField<FStructProperty>(InProperty))
+	{
+		AppendObjectName(StructProperty->Struct);
+	}
+	else if (const auto ClassProperty = CastField<FClassProperty>(InProperty))
+	{
+		AppendObjectName(ClassProperty->MetaClass);
+	}
+	else if (const auto SoftClassProperty = CastField<FSoftClassProperty>(InProperty))
+	{
+		AppendObjectName(SoftClassProperty->MetaClass);
+	}
+	else if (const auto ObjectProperty = CastField<FObjectPropertyBase>(InProperty))
+	{
+		AppendObjectName(ObjectProperty->PropertyClass);
+	}
+	else if (const auto InterfaceProperty = CastField<FInterfaceProperty>(InProperty))
+	{
+		AppendObjectName(InterfaceProperty->InterfaceClass);
+	}
+	else if (const auto ArrayProperty = CastField<FArrayProperty>(InProperty))
+	{
+		InBuilder << TEXT('<');
+		AppendPropertyType(InBuilder, ArrayProperty->Inner);
+		InBuilder << TEXT('>');
+	}
+	else if (const auto SetProperty = CastField<FSetProperty>(InProperty))
+	{
+		InBuilder << TEXT('<');
+		AppendPropertyType(InBuilder, SetProperty->ElementProp);
+		InBuilder << TEXT('>');
+	}
+	else if (const auto MapProperty = CastField<FMapProperty>(InProperty))
+	{
+		InBuilder << TEXT('<');
+		AppendPropertyType(InBuilder, MapProperty->KeyProp);
+		InBuilder << TEXT(',');
+		AppendPropertyType(InBuilder, MapProperty->ValueProp);
+		InBuilder << TEXT('>');
+	}
+	else if (const auto OptionalProperty = CastField<FOptionalProperty>(InProperty))
+	{
+		InBuilder << TEXT('<');
+		AppendPropertyType(InBuilder, OptionalProperty->GetValueProperty());
+		InBuilder << TEXT('>');
+	}
+}
+
 FString FEditorListener::GetClassSignature(const UClass* InClass)
 {
 	if (InClass == nullptr)
@@ -661,7 +762,9 @@ FString FEditorListener::GetClassSignature(const UClass* InClass)
 
 	for (TFieldIterator<FProperty> It(InClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
 	{
-		Builder << It->GetFName() << TEXT(':') << It->GetCPPType() << TEXT(';');
+		Builder << It->GetFName() << TEXT(':');
+		AppendPropertyType(Builder, *It);
+		Builder << TEXT(';');
 	}
 
 	for (TFieldIterator<UFunction> It(InClass, EFieldIteratorFlags::ExcludeSuper); It; ++It)
@@ -670,7 +773,9 @@ FString FEditorListener::GetClassSignature(const UClass* InClass)
 
 		for (TFieldIterator<FProperty> ParamIt(*It); ParamIt; ++ParamIt)
 		{
-			Builder << ParamIt->GetFName() << TEXT(':') << ParamIt->GetCPPType() << TEXT(',');
+			Builder << ParamIt->GetFName() << TEXT(':');
+			AppendPropertyType(Builder, *ParamIt);
+			Builder << TEXT(',');
 		}
 
 		Builder << TEXT(");");
