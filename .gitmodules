@@ -9,4 +9,4 @@
 	url = https://github.com/crazytuzi/LeanCLR
 [submodule "Source/SourceCodeGenerator"]
 	path = Source/SourceCodeGenerator
-	url = https://github.com/crazytuzi/SourceCodeGenerator
+	url = https://github.com/KaneWL/SourceCodeGenerator.git
