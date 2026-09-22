@@ -183,6 +183,8 @@ bool FCSharpBind::BindImplementation(UStruct* InStruct)
 
 	if (const auto FoundClass = Cast<UClass>(InStruct))
 	{
+		FUnrealCSharpModuleDelegates::OnCSharpClassBinding.Broadcast(FoundClass);
+
 		TMap<FString, UFunction*> Functions;
 
 		for (TFieldIterator<UFunction> It(FoundClass, EFieldIteratorFlags::ExcludeSuper,

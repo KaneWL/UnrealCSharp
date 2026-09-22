@@ -47,6 +47,11 @@
 			"LoadingPhase": "Default"
 		},
 		{
+			"Name": "UnrealCSharpBlueprintFunction",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
 			"Name": "SourceCodeGenerator",
 			"Type": "Program",
 			"LoadingPhase": "PostConfigInit"

@@ -6,3 +6,5 @@ FUnrealCSharpModuleDelegates::FOnUnrealCSharpModuleInActive FUnrealCSharpModuleD
 
 FUnrealCSharpModuleDelegates::FOnCSharpEnvironmentInitialize
 FUnrealCSharpModuleDelegates::OnCSharpEnvironmentInitialize;
+
+FUnrealCSharpModuleDelegates::FOnCSharpClassBinding FUnrealCSharpModuleDelegates::OnCSharpClassBinding;
