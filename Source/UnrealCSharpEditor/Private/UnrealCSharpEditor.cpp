@@ -1,6 +1,7 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "UnrealCSharpEditor.h"
+#include "Engine/Engine.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "ToolMenus.h"
 #include "Internationalization/Culture.h"
@@ -48,7 +49,14 @@ void FUnrealCSharpEditorModule::StartupModule()
 
 	if (!UGeneratorScriptCodeCommandlet::IsRunningGeneratorScriptCodeCommandlet())
 	{
-		FDynamicGenerator::Generator();
+		if (GEngine != nullptr)
+		{
+			FDynamicGenerator::Generator();
+		}
+		else
+		{
+			bPendingDynamicGenerator = true;
+		}
 	}
 
 	FUnrealCSharpEditorStyle::Initialize();
@@ -252,6 +260,13 @@ void FUnrealCSharpEditorModule::PluginButtonClicked() const
 
 void FUnrealCSharpEditorModule::OnPostEngineInit()
 {
+	if (bPendingDynamicGenerator)
+	{
+		bPendingDynamicGenerator = false;
+
+		FDynamicGenerator::Generator();
+	}
+
 	RegisterMenus();
 }
 
