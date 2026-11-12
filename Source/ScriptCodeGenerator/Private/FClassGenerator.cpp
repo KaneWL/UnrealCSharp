@@ -1,4 +1,4 @@
-#include "FClassGenerator.h"
+﻿#include "FClassGenerator.h"
 #include "FDoxygenConverter.h"
 #include "FDelegateGenerator.h"
 #include "FGeneratorCore.h"
@@ -64,7 +64,8 @@ void FClassGenerator::Generator(const UClass* InClass)
 
 	auto NameSpaceContent = FUnrealCSharpFunctionLibrary::GetClassNameSpace(InClass);
 
-	auto PathNameAttributeContent = FGeneratorCore::GetPathNameAttribute(InClass);
+	auto PathNameAttributeContent = FGeneratorCore::GetEscapedStringLiteral(
+		FGeneratorCore::GetPathNameAttribute(InClass));
 
 	auto ClassContent = FUnrealCSharpFunctionLibrary::GetFullClass(InClass);
 
@@ -458,7 +459,10 @@ void FClassGenerator::Generator(const UClass* InClass)
 
 		if (FUnrealCSharpFunctionLibrary::IsGenerateFunctionComment())
 		{
-			auto Comment = Function->GetMetaData(TEXT("Comment"));
+			auto Comment = Function->GetMetaData(TEXT("Comment"))
+			                       .Replace(TEXT("&"), TEXT("&amp;"))
+			                       .Replace(TEXT("<"), TEXT("&lt;"))
+			                       .Replace(TEXT(">"), TEXT("&gt;"));
 
 			if (!Comment.IsEmpty())
 			{
@@ -467,10 +471,6 @@ void FClassGenerator::Generator(const UClass* InClass)
 		}
 
 		FString FunctionDeclarationBody;
-
-		TArray<int32> FunctionOutParamIndexMapping;
-
-		FunctionOutParamIndexMapping.AddDefaulted(FunctionParams.Num());
 
 		auto bGeneratorFunctionDefaultParam = false;
 
@@ -482,16 +482,10 @@ void FClassGenerator::Generator(const UClass* InClass)
 				if (FUnrealCSharpFunctionLibrary::IsNativeFunction(InClass, Function->GetFName()) ||
 					FunctionParams[Index]->HasAnyPropertyFlags(CPF_ReferenceParm))
 				{
-					FunctionOutParamIndexMapping[FunctionParams.Num() - 1 - FunctionRefParamIndex.Num()] =
-						FunctionRefParamIndex.Num() + FunctionOutParamIndex.Num();
-
 					FunctionRefParamIndex.Emplace(Index);
 				}
 				else
 				{
-					FunctionOutParamIndexMapping[FunctionOutParamIndex.Num()] =
-						FunctionRefParamIndex.Num() + FunctionOutParamIndex.Num();
-
 					FunctionOutParamIndex.Emplace(Index);
 				}
 			}
@@ -818,7 +812,9 @@ void FClassGenerator::Generator(const UClass* InClass)
 
 	UsingNameSpaces.Remove(TEXT(""));
 
-	for (auto UsingNameSpace : UsingNameSpaces)
+	UsingNameSpaces.Sort([](const FString& A, const FString& B) { return A < B; });
+
+	for (const auto& UsingNameSpace : UsingNameSpaces)
 	{
 		UsingNameSpaceContent += FString::Printf(TEXT(
 			"using %s;\n"
@@ -1326,7 +1322,7 @@ FString FClassGenerator::GeneratorFunctionDefaultParam(FProperty* InProperty, co
 			"\t\t\t\t%s \?\?= new FName(\"%s\");\n\n"
 		),
 		                       *FUnrealCSharpFunctionLibrary::Encode(InProperty),
-		                       *InMetaData
+		                       *FGeneratorCore::GetEscapedStringLiteral(InMetaData)
 		);
 	}
 
@@ -1419,7 +1415,7 @@ FString FClassGenerator::GeneratorFunctionDefaultParam(FProperty* InProperty, co
 			"\t\t\t\t%s \?\?= new FString(\"%s\");\n\n"
 		),
 		                       *FUnrealCSharpFunctionLibrary::Encode(InProperty),
-		                       *InMetaData
+		                       *FGeneratorCore::GetEscapedStringLiteral(InMetaData)
 		);
 	}
 
@@ -1430,7 +1426,7 @@ FString FClassGenerator::GeneratorFunctionDefaultParam(FProperty* InProperty, co
 			"\t\t\t\t%s \?\?= new FUtf8String(\"%s\");\n\n"
 		),
 		                       *FUnrealCSharpFunctionLibrary::Encode(InProperty),
-		                       *InMetaData
+		                       *FGeneratorCore::GetEscapedStringLiteral(InMetaData)
 		);
 	}
 #endif
@@ -1442,7 +1438,7 @@ FString FClassGenerator::GeneratorFunctionDefaultParam(FProperty* InProperty, co
 			"\t\t\t\t%s \?\?= new FAnsiString(\"%s\");\n\n"
 		),
 		                       *FUnrealCSharpFunctionLibrary::Encode(InProperty),
-		                       *InMetaData
+		                       *FGeneratorCore::GetEscapedStringLiteral(InMetaData)
 		);
 	}
 #endif
@@ -1453,7 +1449,7 @@ FString FClassGenerator::GeneratorFunctionDefaultParam(FProperty* InProperty, co
 			"\t\t\t\t%s \?\?= new FText(\"%s\");\n\n"
 		),
 		                       *FUnrealCSharpFunctionLibrary::Encode(InProperty),
-		                       *InMetaData.Replace(TEXT("\""), TEXT("\\\""))
+		                       *FGeneratorCore::GetTextStringLiteral(InMetaData)
 		);
 	}
 

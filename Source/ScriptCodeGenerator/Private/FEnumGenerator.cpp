@@ -48,7 +48,8 @@ void FEnumGenerator::Generator(const UEnum* InEnum)
 
 	const auto NameSpaceContent = FUnrealCSharpFunctionLibrary::GetClassNameSpace(InEnum);
 
-	const auto PathNameAttributeContent = FGeneratorCore::GetPathNameAttribute(InEnum);
+	const auto PathNameAttributeContent = FGeneratorCore::GetEscapedStringLiteral(
+		FGeneratorCore::GetPathNameAttribute(InEnum));
 
 	const auto FullClassContent = FUnrealCSharpFunctionLibrary::GetFullClass(InEnum);
 
@@ -116,7 +117,9 @@ void FEnumGenerator::Generator(const UEnum* InEnum)
 		                                     EnumeratorValue, Index == InEnum->NumEnums() - 1 ? TEXT("") : TEXT(","));
 	}
 
-	for (auto UsingNameSpace : UsingNameSpaces)
+	UsingNameSpaces.Sort([](const FString& A, const FString& B) { return A < B; });
+
+	for (const auto& UsingNameSpace : UsingNameSpaces)
 	{
 		UsingNameSpaceContent += FString::Printf(TEXT(
 			"using %s;\n"
@@ -215,7 +218,8 @@ void FEnumGenerator::GeneratorCollisionChannel()
 
 	const auto NameSpaceContent = FUnrealCSharpFunctionLibrary::GetClassNameSpace(InEnum);
 
-	const auto PathNameAttributeContent = FGeneratorCore::GetPathNameAttribute(InEnum);
+	const auto PathNameAttributeContent = FGeneratorCore::GetEscapedStringLiteral(
+		FGeneratorCore::GetPathNameAttribute(InEnum));
 
 	const auto FullClassContent = FUnrealCSharpFunctionLibrary::GetFullClass(InEnum);
 
@@ -245,7 +249,9 @@ void FEnumGenerator::GeneratorCollisionChannel()
 		                                     EnumeratorValue, Index == InEnum->NumEnums() - 1 ? TEXT("") : TEXT(","));
 	}
 
-	for (auto UsingNameSpace : UsingNameSpaces)
+	UsingNameSpaces.Sort([](const FString& A, const FString& B) { return A < B; });
+
+	for (const auto& UsingNameSpace : UsingNameSpaces)
 	{
 		UsingNameSpaceContent += FString::Printf(TEXT(
 			"using %s;\n"
@@ -254,6 +260,7 @@ void FEnumGenerator::GeneratorCollisionChannel()
 	}
 
 	const auto Content = FString::Printf(TEXT(
+		"%s\n"
 		"%s\n"
 		"namespace %s\n"
 		"{\n"
@@ -264,6 +271,7 @@ void FEnumGenerator::GeneratorCollisionChannel()
 		"\t}\n"
 		"}"
 	),
+	                                     *FGeneratorCore::GetGeneratorHeaderComment(),
 	                                     *UsingNameSpaceContent,
 	                                     *NameSpaceContent,
 	                                     *PathNameAttributeContent,
