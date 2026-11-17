@@ -2,7 +2,7 @@
 
 #include "FFunctionDescriptor.h"
 
-class FManagedFunctionDescriptor : public FFunctionDescriptor
+class UNREALCSHARP_API FManagedFunctionDescriptor : public FFunctionDescriptor
 {
 public:
 	using FFunctionDescriptor::FFunctionDescriptor;
@@ -13,4 +13,7 @@ protected:
 	            const TFunctionRef<void*(int32)>& InPropertyAddress,
 	            void* InReturnAddress,
 	            const TFunctionRef<void*(const FPropertyDescriptor*)>& InOutPropertyAddress);
+
+private:
+	static bool IsCopyValueProperty(const FProperty* InProperty);
 };

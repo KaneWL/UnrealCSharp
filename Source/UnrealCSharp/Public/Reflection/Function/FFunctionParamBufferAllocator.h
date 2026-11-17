@@ -1,6 +1,6 @@
 #pragma once
 
-class FFunctionParamBufferAllocator
+class UNREALCSHARP_API FFunctionParamBufferAllocator
 {
 public:
 	FFunctionParamBufferAllocator();
@@ -18,7 +18,7 @@ public:
 	using FFunctionParamBufferAllocator::FFunctionParamBufferAllocator;
 };
 
-class FFunctionParamPoolBufferAllocator final : public FFunctionParamBufferAllocator
+class UNREALCSHARP_API FFunctionParamPoolBufferAllocator final : public FFunctionParamBufferAllocator
 {
 public:
 	explicit FFunctionParamPoolBufferAllocator(const TWeakObjectPtr<UFunction>& InFunction);
@@ -31,7 +31,7 @@ public:
 	virtual void Free(void* InMemory) override;
 
 private:
-	uint8 Count;
+	int32 Count;
 
 	decltype(UFunction::ParmsSize) ParamSize;
 

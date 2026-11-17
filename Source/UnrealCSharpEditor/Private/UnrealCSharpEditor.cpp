@@ -12,6 +12,7 @@
 #include "Interfaces/ITargetPlatformManagerModule.h"
 #include "FGameplayTagGenerator.h"
 #include "GameplayTagsManager.h"
+#include "Async/Async.h"
 #include "FAssetGenerator.h"
 #include "FClassGenerator.h"
 #include "FCSharpCompiler.h"
@@ -113,7 +114,7 @@ void FUnrealCSharpEditorModule::StartupModule()
 		FConsoleCommandDelegate::CreateLambda(
 			[]()
 			{
-				FCodeAnalysis::CodeAnalysis();
+				FCSharpCompiler::Get().EnqueueTask(FCodeAnalysis::MakeCodeAnalysisTask());
 			}));
 
 	SolutionGeneratorConsoleCommand = MakeUnique<FAutoConsoleCommand>(
@@ -132,8 +133,11 @@ void FUnrealCSharpEditorModule::StartupModule()
 		FConsoleCommandDelegate::CreateLambda(
 			[]()
 			{
-				FCSharpCompiler::Get().Compile([]()
+				FCSharpCompiler::Get().EnqueueTask([]()
 				{
+					FCSharpCompiler::Get().Compile([]()
+					{
+					});
 				});
 			}));
 
@@ -185,7 +189,7 @@ void FUnrealCSharpEditorModule::StartupModule()
 			if (const auto AssetRegistryModule = FModuleManager::LoadModulePtr<FAssetRegistryModule>(
 				TEXT("AssetRegistry")))
 			{
-				AssetRegistryModule->Get().OnFilesLoaded().AddLambda([]()
+				OnFilesLoadedDelegateHandle = AssetRegistryModule->Get().OnFilesLoaded().AddLambda([]()
 				{
 					if (const auto TargetPlatformManager = GetTargetPlatformManager())
 					{
@@ -206,22 +210,31 @@ void FUnrealCSharpEditorModule::ShutdownModule()
 	// This function may be called during shutdown to clean up your module.  For modules that support dynamic reloading,
 	// we call this function before unloading the module.
 
+	if (UnrealCSharpBlueprintToolBar.IsValid())
+	{
+		UnrealCSharpBlueprintToolBar->Deinitialize();
+	}
+
+	if (UnrealCSharpPlayToolBar.IsValid())
+	{
+		UnrealCSharpPlayToolBar->Deinitialize();
+	}
+
 	UToolMenus::UnregisterOwner(this);
 
-	FUnrealCSharpEditorStyle::Shutdown();
-
-	FUnrealCSharpEditorCommands::Unregister();
-
-	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
+	if (OnFilesLoadedDelegateHandle.IsValid())
 	{
-		auto& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		if (const auto AssetRegistryModule = FModuleManager::GetModulePtr<FAssetRegistryModule>(TEXT("AssetRegistry")))
+		{
+			AssetRegistryModule->Get().OnFilesLoaded().Remove(OnFilesLoadedDelegateHandle);
+		}
 
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout("GameContentDirectoryPath");
-
-		PropertyEditorModule.UnregisterCustomPropertyTypeLayout("ProjectDirectoryPath");
-
-		PropertyEditorModule.NotifyCustomizationModuleChanged();
+		OnFilesLoadedDelegateHandle.Reset();
 	}
+
+	FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
+
+	DynamicDataSource.Reset();
 
 	if (OnEditorRefreshGameplayTagTreeDelegateHandle.IsValid())
 	{
@@ -237,23 +250,24 @@ void FUnrealCSharpEditorModule::ShutdownModule()
 #endif
 	}
 
-	if (UnrealCSharpBlueprintToolBar.IsValid())
+	if (FModuleManager::Get().IsModuleLoaded("PropertyEditor"))
 	{
-		UnrealCSharpBlueprintToolBar->Deinitialize();
+		auto& PropertyEditorModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout("ProjectDirectoryPath");
+
+		PropertyEditorModule.UnregisterCustomPropertyTypeLayout("GameContentDirectoryPath");
+
+		PropertyEditorModule.NotifyCustomizationModuleChanged();
 	}
 
-	if (UnrealCSharpPlayToolBar.IsValid())
-	{
-		UnrealCSharpPlayToolBar->Deinitialize();
-	}
+	FUnrealCSharpEditorCommands::Unregister();
 
-	DynamicDataSource.Reset();
-
-	FTSTicker::GetCoreTicker().RemoveTicker(TickHandle);
-
-	UUnrealCSharpEditorSetting::UnregisterSettings();
+	FUnrealCSharpEditorStyle::Shutdown();
 
 	UUnrealCSharpSetting::UnregisterSettings();
+
+	UUnrealCSharpEditorSetting::UnregisterSettings();
 }
 
 void FUnrealCSharpEditorModule::Tick(const float InDeltaTime)
@@ -273,19 +287,19 @@ void FUnrealCSharpEditorModule::PluginButtonClicked() const
 
 void FUnrealCSharpEditorModule::OnPostEngineInit()
 {
-	if (bPendingDynamicGenerator)
-	{
-		bPendingDynamicGenerator = false;
-
-		FDynamicGenerator::Generator();
-	}
-
 	if (!IsRunningCookCommandlet())
 	{
 		if (FUnrealCSharpFunctionLibrary::IsScriptPublishOutdated())
 		{
 			FCSharpCompiler::Get().ImmediatelyCompile();
 		}
+	}
+
+	if (bPendingDynamicGenerator)
+	{
+		bPendingDynamicGenerator = false;
+
+		FDynamicGenerator::Generator();
 	}
 
 	RegisterMenus();
@@ -301,6 +315,102 @@ void FUnrealCSharpEditorModule::OnEditorRefreshGameplayTagTree()
 	{
 		FCSharpCompiler::Get().AsyncCompile();
 	}
+}
+
+void FUnrealCSharpEditorModule::GeneratorInternal(const FString& InPlatformName,
+                                                  const bool bForceCompileInterop,
+                                                  const bool bIsPrepared)
+{
+	FScriptDomainTypeScope ScriptDomainTypeScope(FUnrealCSharpFunctionLibrary::GetScriptDomainType(InPlatformName));
+
+	FUnrealCSharpCoreModuleDelegates::OnBeginGenerator.Broadcast();
+
+	static FString DefaultCultureName = TEXT("en");
+
+	const auto CurrentCultureName = FInternationalization::Get().GetCurrentCulture().Get().GetName();
+
+	if (!CurrentCultureName.Equals(DefaultCultureName))
+	{
+		FInternationalization::Get().SetCurrentCulture(DefaultCultureName);
+	}
+
+	FScopedSlowTask SlowTask(bIsPrepared ? 11 : 13, LOCTEXT("GeneratingCodeAction", "Generating Code Action"));
+
+	SlowTask.MakeDialog();
+
+	if (!bIsPrepared)
+	{
+		SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Solution Generator"));
+
+		FSolutionGenerator::Generator();
+
+		SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Code Analysis"));
+
+		FCodeAnalysis::CodeAnalysis();
+	}
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Code Analysis Generator"));
+
+	FDynamicGenerator::CodeAnalysisGenerator();
+
+	FGeneratorCore::BeginGenerator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Class Generator"));
+
+	FClassGenerator::Generator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Struct Generator"));
+
+	FStructGenerator::Generator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Asset Generator"));
+
+	FAssetGenerator::Generator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Enum Generator"));
+
+	FEnumGenerator::Generator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "GameplayTag Generator"));
+
+	FGameplayTagGenerator::Generator();
+
+	if (!CurrentCultureName.Equals(DefaultCultureName))
+	{
+		FInternationalization::Get().SetCurrentCulture(CurrentCultureName);
+	}
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "BindingClass Generator"));
+
+	FBindingClassGenerator::Generator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "BindingEnum Generator"));
+
+	FBindingEnumGenerator::Generator();
+
+	FGeneratorCore::EndGenerator();
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Garbage Collect"));
+
+	CollectGarbage(RF_NoFlags, true);
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Compiler"));
+
+	if (IsRunningCommandlet())
+	{
+		FCSharpCompiler::Get().ImmediatelyCompile(bForceCompileInterop);
+	}
+	else
+	{
+		FCSharpCompiler::Get().EnqueueTask([bForceCompileInterop]()
+		{
+			FCSharpCompiler::Get().ImmediatelyCompile(bForceCompileInterop);
+		});
+	}
+
+	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Completion"));
+
+	FUnrealCSharpCoreModuleDelegates::OnEndGenerator.Broadcast();
 }
 
 void FUnrealCSharpEditorModule::RegisterMenus()
@@ -349,83 +459,37 @@ void FUnrealCSharpEditorModule::UpdatePackagingSettings()
 
 void FUnrealCSharpEditorModule::Generator(const FString& InPlatformName, const bool bForceCompileInterop)
 {
-	FScriptDomainTypeScope ScriptDomainTypeScope(FUnrealCSharpFunctionLibrary::GetScriptDomainType(InPlatformName));
-
-	FUnrealCSharpCoreModuleDelegates::OnBeginGenerator.Broadcast();
-
-	static FString DefaultCultureName = TEXT("en");
-
-	const auto CurrentCultureName = FInternationalization::Get().GetCurrentCulture().Get().GetName();
-
-	if (!CurrentCultureName.Equals(DefaultCultureName))
+	if (IsRunningCommandlet())
 	{
-		FInternationalization::Get().SetCurrentCulture(DefaultCultureName);
+		GeneratorInternal(InPlatformName, bForceCompileInterop, false);
+
+		return;
 	}
 
-	FScopedSlowTask SlowTask(13, LOCTEXT("GeneratingCodeAction", "Generating Code Action"));
+	static bool bIsGeneratorScheduled = false;
 
-	SlowTask.MakeDialog();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Solution Generator"));
-
-	FSolutionGenerator::Generator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Code Analysis"));
-
-	FCodeAnalysis::CodeAnalysis();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Code Analysis Generator"));
-
-	FDynamicGenerator::CodeAnalysisGenerator();
-
-	FGeneratorCore::BeginGenerator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Class Generator"));
-
-	FClassGenerator::Generator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Struct Generator"));
-
-	FStructGenerator::Generator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Enum Generator"));
-
-	FEnumGenerator::Generator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Asset Generator"));
-
-	FAssetGenerator::Generator();
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "GameplayTag Generator"));
-
-	FGameplayTagGenerator::Generator();
-
-	if (!CurrentCultureName.Equals(DefaultCultureName))
+	if (bIsGeneratorScheduled)
 	{
-		FInternationalization::Get().SetCurrentCulture(CurrentCultureName);
+		return;
 	}
 
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "BindingClass Generator"));
+	bIsGeneratorScheduled = true;
 
-	FBindingClassGenerator::Generator();
+	{
+		const auto ScriptDomainType = FUnrealCSharpFunctionLibrary::GetScriptDomainType(InPlatformName);
 
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "BindingEnum Generator"));
+		FScriptDomainTypeScope ScriptDomainTypeScope(ScriptDomainType);
 
-	FBindingEnumGenerator::Generator();
+		FSolutionGenerator::Generator();
+	}
 
-	FGeneratorCore::EndGenerator();
+	FCSharpCompiler::Get().EnqueueTask(
+		FCodeAnalysis::MakeCodeAnalysisTask({}, [InPlatformName, bForceCompileInterop]()
+		{
+			GeneratorInternal(InPlatformName, bForceCompileInterop, true);
 
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Garbage Collect"));
-
-	CollectGarbage(RF_NoFlags, true);
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Compiler"));
-
-	FCSharpCompiler::Get().ImmediatelyCompile(bForceCompileInterop);
-
-	SlowTask.EnterProgressFrame(1, LOCTEXT("GeneratingCodeAction", "Completion"));
-
-	FUnrealCSharpCoreModuleDelegates::OnEndGenerator.Broadcast();
+			bIsGeneratorScheduled = false;
+		}));
 }
 
 #undef LOCTEXT_NAMESPACE

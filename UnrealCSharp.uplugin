@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 1,
-	"VersionName": "1.2.0",
+	"VersionName": "1.5.0",
 	"FriendlyName": "UnrealCSharp",
 	"Description": "",
 	"Category": "Scripting",
@@ -45,6 +45,21 @@
 			"Name": "CrossVersion",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "UnrealCSharpBlueprintFunction",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "UnrealCSharpBlueprintFunctionEditor",
+			"Type": "UncookedOnly",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "UnrealCSharpWidgetBindingEditor",
+			"Type": "Editor",
+			"LoadingPhase": "PostDefault"
 		},
 		{
 			"Name": "SourceCodeGenerator",
