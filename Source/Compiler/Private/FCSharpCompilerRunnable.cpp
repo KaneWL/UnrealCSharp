@@ -426,7 +426,7 @@ void FCSharpCompilerRunnable::ShutdownBuildServer()
 		0,
 		nullptr,
 		WritePipe,
-		ReadPipe);
+		nullptr);
 
 	if (ProcessHandle.IsValid())
 	{
