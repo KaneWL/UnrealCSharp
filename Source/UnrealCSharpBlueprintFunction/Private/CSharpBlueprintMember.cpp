@@ -294,20 +294,32 @@ static FString GetReflectionAttributeValue(const FCSharpBlueprintMemberInfo& InI
 
 FString FCSharpBlueprintMemberLibrary::GetDisplayName(const FCSharpBlueprintMemberInfo& InInfo)
 {
+#if WITH_EDITOR
 	const auto DisplayName = GetReflectionAttributeValue(InInfo,
 	                                                     FReflectionRegistry::Get().GetDisplayNameAttributeClass());
 
 	return !DisplayName.IsEmpty() ? DisplayName : InInfo.GetMemberName();
+#else
+	return InInfo.GetMemberName();
+#endif
 }
 
 FString FCSharpBlueprintMemberLibrary::GetCategory(const FCSharpBlueprintMemberInfo& InInfo)
 {
+#if WITH_EDITOR
 	return GetReflectionAttributeValue(InInfo, FReflectionRegistry::Get().GetCategoryAttributeClass());
+#else
+	return FString();
+#endif
 }
 
 FString FCSharpBlueprintMemberLibrary::GetToolTip(const FCSharpBlueprintMemberInfo& InInfo)
 {
+#if WITH_EDITOR
 	return GetReflectionAttributeValue(InInfo, FReflectionRegistry::Get().GetToolTipAttributeClass());
+#else
+	return FString();
+#endif
 }
 
 UFunction* FCSharpBlueprintMemberLibrary::BuildSignature(const FCSharpBlueprintMemberInfo& InInfo,
